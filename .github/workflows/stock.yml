@@ -1,0 +1,54 @@
+name: Stock Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        description: 'Report type'
+        options:
+          - position
+          - market
+        default: position
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Run stock analysis
+        run: |
+          MODE="${{ github.event.inputs.mode }}"
+          if [ "$MODE" = "position" ]; then
+            python daily_stock_analysis.py
+          else
+            python daily_market_analysis.py
+          fi
+      
+      - name: Send to WeChat
+        run: |
+          node -e "
+const https=require('https');
+const {execSync}=require('child_process');
+const mode='${{ github.event.inputs.mode }}';
+const title=mode==='position'?'每日持仓分析':'大盘收盘分析';
+const cmd=mode==='position'?'python daily_stock_analysis.py':'python daily_market_analysis.py';
+const content=execSync(cmd,{encoding:'utf8'});
+const payload=JSON.stringify({msgtype:'text',text:{content:title+'\\n'+content}});
+const u=new URL(process.env.WEBHOOK);
+const req=https.request({hostname:u.hostname,path:u.pathname+u.search,method:'POST',headers:{'Content-Type':'application/json'}},r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>console.log(r.statusCode,d));});
+req.on('error',e=>console.error(e.message));
+req.write(payload);
+req.end();
+"
+        env:
+          WEBHOOK: ${{ secrets.WEBHOOK_URL }}
